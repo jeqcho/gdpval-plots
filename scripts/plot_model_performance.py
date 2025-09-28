@@ -25,6 +25,7 @@ FIGURE_PATHS = {
     "logit": FIGURES_DIR / "model_performance_logit.png",
 }
 PROJECTION_CSV = DATA_DIR / "model_performance_projections.csv"
+PROJECTION_MD = DATA_DIR / "model_performance_projections.md"
 
 MODEL_KEY_MAP = {
     "GPT-4o": "gpt_4o",
@@ -96,12 +97,29 @@ def write_projection_csv(entries: list[dict[str, str]]) -> None:
     fieldnames = ["metric", "percent", "date", "line_type"]
     entries_sorted = sorted(
         entries,
-        key=lambda item: (item["metric"], float(item["percent"]), item["line_type"]),
+        key=lambda item: (item["metric"], item["line_type"], float(item["percent"])),
     )
     with PROJECTION_CSV.open("w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(entries_sorted)
+
+
+def write_projection_markdown(entries: list[dict[str, str]]) -> None:
+    PROJECTION_MD.parent.mkdir(exist_ok=True, parents=True)
+    entries_sorted = sorted(
+        entries,
+        key=lambda item: (item["metric"], item["line_type"], float(item["percent"])),
+    )
+    header = "| Metric | Percent | Date | Line Type |\n"
+    separator = "| --- | --- | --- | --- |\n"
+    lines = [header, separator]
+    for row in entries_sorted:
+        lines.append(
+            f"| {row['metric']} | {row['percent']}% | {row['date']} | {row['line_type']} |\n"
+        )
+    with PROJECTION_MD.open("w") as fh:
+        fh.writelines(lines)
 
 
 def compute_transforms(records: list[tuple[str, datetime, float]]):
@@ -485,8 +503,10 @@ def main() -> None:
     data = compute_transforms(records)
     figure_paths, projection_records = plot_transforms(data)
     write_projection_csv(projection_records)
+    write_projection_markdown(projection_records)
     print(f"Merged CSV saved to {OUTPUT_CSV}")
     print(f"Projection CSV saved to {PROJECTION_CSV}")
+    print(f"Projection markdown saved to {PROJECTION_MD}")
     for path in figure_paths:
         print(f"Figure saved to {path}")
 

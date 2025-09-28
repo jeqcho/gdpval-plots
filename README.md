@@ -20,6 +20,7 @@
 - Outputs:
   - `data/model_performance_merged.csv`: merged dataset restricted to the models in `model_performance.csv`.
   - `data/model_performance_projections.csv`: regression-based milestone calendar with columns `metric`, `percent`, `date`, and `line_type` (`overall` vs `frontier`).
+  - `data/model_performance_projections.md`: markdown table containing the same milestone schedule as the CSV.
   - `figures/model_performance_actual_percent.png`
   - `figures/model_performance_log_percent.png`
   - `figures/model_performance_odds.png`

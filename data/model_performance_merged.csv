@@ -1,0 +1,8 @@
+model_name,date,model_performance
+GPT-4o,2024-05-13,0.1240
+o3 high,2025-04-16,0.3410
+o4-mini high,2025-04-16,0.2790
+Gemini 2.5 Pro,2025-06-05,0.2550
+Grok 4,2025-07-09,0.2430
+Claude Opus 4.1,2025-08-05,0.4760
+GPT-5 high,2025-08-07,0.3880

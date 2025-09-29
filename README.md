@@ -25,8 +25,9 @@
   - `figures/model_performance_log_percent.png`
   - `figures/model_performance_odds.png`
   - `figures/model_performance_logit.png`
+  - `figures/model_performance_logit_projection.png`
 
-    Each figure highlights frontier models (green) versus other models (gray), overlays the frontier-only regression line, and includes a legend. Milestone annotations list the frontier projections for the 50%, 75%, 90%, 95%, and 99% thresholds on the chart (overall projections remain available in the CSV), alongside the frontier regression equation (in `delta_days` since first release) and an "Industry Expert" reference line at p = 0.5 translated into the respective scale. All y-axes are scaled to represent probabilities from 0% to 100% via the appropriate transformation and tick labelling.
+    Each figure highlights frontier models (green) versus other models (gray), overlays the frontier-only regression line, and includes a legend. Milestone annotations list the frontier projections for the 50%, 75%, 90%, 95%, and 99% thresholds on the chart (overall projections remain available in the CSV), alongside the frontier regression equation (in `delta_days` since first release) and an "Industry Expert" reference line at p = 0.5 translated into the respective scale. The `model_performance_logit_projection.png` figure duplicates the logit view with additional projected milestone markers, dotted extrapolation segments, and aligned axes/ticks for those future targets. All y-axes are scaled to represent probabilities from 0% to 100% via the appropriate transformation and tick labelling.
 
 ## Troubleshooting
 - If `matplotlib` cannot find a GUI backend, set `MPLBACKEND=Agg` before running the script: `MPLBACKEND=Agg uv run python scripts/plot_model_performance.py`.

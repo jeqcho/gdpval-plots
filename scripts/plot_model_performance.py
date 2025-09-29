@@ -23,6 +23,7 @@ FIGURE_PATHS = {
     "log_percent": FIGURES_DIR / "model_performance_log_percent.png",
     "odds": FIGURES_DIR / "model_performance_odds.png",
     "logit": FIGURES_DIR / "model_performance_logit.png",
+    "logit_projection": FIGURES_DIR / "model_performance_logit_projection.png",
 }
 PROJECTION_CSV = DATA_DIR / "model_performance_projections.csv"
 PROJECTION_MD = DATA_DIR / "model_performance_projections.md"
@@ -253,6 +254,7 @@ def plot_metric(
     metric_key: str = "",
     plot_title: str | None = None,
     y_axis_label: str | None = None,
+    detail_path: pathlib.Path | None = None,
 ):
     base, x_numeric, slope, intercept = fit_regression(dates, values)
 
@@ -298,6 +300,7 @@ def plot_metric(
 
     text_lines: list[str] = []
     projection_entries: list[dict[str, str]] = []
+    detail_payload: dict[str, object] | None = None
 
     frontier_regression = None
     if frontier_dates:
@@ -321,6 +324,23 @@ def plot_metric(
                 f"y = {f_intercept:.3f} + {f_slope:.3f} * delta_days (R² = {r_squared:.3f})"
             )
             frontier_regression = (f_base, f_x_numeric, f_slope, f_intercept)
+            if metric_key == "logit" and detail_path is not None:
+                detail_payload = {
+                    "detail_path": detail_path,
+                    "dates": list(dates),
+                    "values": list(values),
+                    "labels": list(labels),
+                    "other_dates": list(other_dates),
+                    "other_values": list(other_values),
+                    "frontier_dates": list(frontier_dates),
+                    "frontier_values": list(frontier_values),
+                    "frontier_regression": frontier_regression,
+                    "probability_transform": probability_transform,
+                    "projection_targets": list(projection_targets or []),
+                    "perc_ticks": list(perc_ticks) if perc_ticks is not None else None,
+                    "plot_title": plot_title,
+                    "y_axis_label": y_axis_label,
+                }
         elif frontier_values:
             text_lines.append("Need ≥2 frontier points for regression")
 
@@ -383,7 +403,7 @@ def plot_metric(
     figure.tight_layout()
     figure.savefig(output_path, dpi=300)
     plt.close(figure)
-    return projection_entries
+    return projection_entries, detail_payload
 
 
 def plot_transforms(data):
@@ -457,6 +477,7 @@ def plot_transforms(data):
             "ylabel": "logit",
             "reference": 0.0,
             "path": FIGURE_PATHS["logit"],
+            "detail_path": FIGURE_PATHS["logit_projection"],
             "limits": (
                 transform_logit(0.10),
                 transform_logit(0.90),
@@ -472,8 +493,9 @@ def plot_transforms(data):
 
     outputs = []
     projection_records: list[dict[str, str]] = []
+    detail_payloads: list[dict[str, object]] = []
     for spec in specs:
-        entries = plot_metric(
+        entries, detail_payload = plot_metric(
             spec["title"],
             dates,
             spec["values"],
@@ -491,19 +513,181 @@ def plot_transforms(data):
             metric_key=spec["metric"],
             plot_title=spec["plot_title"],
             y_axis_label=spec["y_label"],
+            detail_path=spec.get("detail_path"),
         )
         outputs.append(spec["path"])
         projection_records.extend(entries)
-    return outputs, projection_records
+        if detail_payload:
+            detail_payloads.append(detail_payload)
+    return outputs, projection_records, detail_payloads
+
+
+def plot_logit_projection_detail(payload: dict[str, object]) -> pathlib.Path:
+    detail_path: pathlib.Path = payload["detail_path"]  # type: ignore[assignment]
+    probability_transform: Callable[[float], float] = payload["probability_transform"]  # type: ignore[assignment]
+    projection_targets: list[float] = payload["projection_targets"]  # type: ignore[assignment]
+    perc_ticks = payload.get("perc_ticks")
+    perc_ticks_list = list(perc_ticks) if perc_ticks else []
+    base_dates: list[datetime] = payload["dates"]  # type: ignore[assignment]
+    values: list[float] = payload["values"]  # type: ignore[assignment]
+    labels: list[str] = payload["labels"]  # type: ignore[assignment]
+    other_dates: list[datetime] = payload["other_dates"]  # type: ignore[assignment]
+    other_values: list[float] = payload["other_values"]  # type: ignore[assignment]
+    frontier_dates: list[datetime] = payload["frontier_dates"]  # type: ignore[assignment]
+    frontier_values: list[float] = payload["frontier_values"]  # type: ignore[assignment]
+    plot_title: str | None = payload.get("plot_title")  # type: ignore[assignment]
+    y_axis_label: str | None = payload.get("y_axis_label")  # type: ignore[assignment]
+    frontier_regression = payload["frontier_regression"]  # type: ignore[assignment]
+
+    f_base, f_x_numeric, f_slope, f_intercept = frontier_regression  # type: ignore[misc]
+    f_x_numeric = np.array(f_x_numeric, dtype=float)
+
+    figure, ax = plt.subplots(figsize=(10, 6))
+    ax.grid(True, linestyle="--", alpha=0.3)
+
+    legend_handles = []
+    marker_size = 60
+    if other_dates:
+        scatter = ax.scatter(other_dates, other_values, color="#b0b0b0", label="Other models", s=marker_size)
+        legend_handles.append(scatter)
+    if frontier_dates:
+        scatter = ax.scatter(frontier_dates, frontier_values, color="tab:green", label="Frontier models", s=marker_size)
+        legend_handles.append(scatter)
+
+    if plot_title:
+        ax.set_title(f"{plot_title} (Extrapolated)")
+    else:
+        ax.set_title("Win Rate Logit Projections")
+    if y_axis_label:
+        ax.set_ylabel(y_axis_label)
+    else:
+        ax.set_ylabel("Win Rate (%) (logit scale)")
+    ax.set_xlabel("Date")
+
+    # Skip annotations to keep the detailed plot uncluttered
+    add_reference_line(ax, base_dates, 0.0)
+
+    target_info: list[tuple[float, float, float, datetime]] = []
+    if projection_targets:
+        for prob in projection_targets:
+            transformed = probability_transform(prob)
+            x_target = (transformed - f_intercept) / f_slope
+            target_date = mdates.num2date(f_base + x_target).replace(tzinfo=None)
+            target_info.append((prob, x_target, transformed, target_date))
+
+    if frontier_dates:
+        x_current = float(f_x_numeric.max())
+    else:
+        x_current = 0.0
+
+    if target_info:
+        max_x = max(x for _, x, _, _ in target_info)
+        if max_x > x_current:
+            x_line_ext = np.linspace(x_current, max_x, 200)
+            y_line_ext = f_intercept + f_slope * x_line_ext
+            line = ax.plot(
+                mdates.num2date(x_line_ext + f_base),
+                y_line_ext,
+                color="tab:blue",
+                linestyle=":",
+                linewidth=1.8,
+                label="Projected frontier",
+            )
+            legend_handles.append(line[0])
+
+    # Plot the original frontier regression segment in green
+    if frontier_dates:
+        x_line_base = np.linspace(f_x_numeric.min(), f_x_numeric.max(), 200)
+        y_line_base = f_intercept + f_slope * x_line_base
+        ax.plot(
+            mdates.num2date(x_line_base + f_base),
+            y_line_base,
+            color="tab:green",
+            linestyle="--",
+            linewidth=1.5,
+        )
+
+    scatter_added = False
+    for prob, _, transformed, target_date in target_info:
+        color = "tab:blue"
+        point = ax.scatter(target_date, transformed, color=color, s=marker_size)
+        if not scatter_added:
+            point.set_label("Projected milestone")
+            legend_handles.append(point)
+            scatter_added = True
+
+    if target_info:
+        target_dates = [dt for *_ , dt in target_info]
+        min_date = min(min(base_dates), min(target_dates))
+        max_date = max(max(base_dates), max(target_dates))
+        ax.set_xlim(min_date, max_date)
+
+    all_values = list(values)
+    all_values.extend([transformed for _, _, transformed, _ in target_info])
+    if all_values:
+        min_val = min(all_values)
+        max_val = max(all_values)
+        padding = (max_val - min_val) * 0.05 if max_val > min_val else 1.0
+        ax.set_ylim(min_val - padding, max_val + padding)
+
+    perc_ticks_detail = sorted(set(perc_ticks_list + [int(prob * 100) for prob, *_ in target_info]))
+    if perc_ticks_detail:
+        configure_probability_axis(ax, probability_transform, perc_ticks_detail)
+    else:
+        configure_probability_axis(ax, probability_transform)
+
+    if target_info:
+        x_left, _ = ax.get_xlim()
+        y_bottom, _ = ax.get_ylim()
+        x_left_num = x_left
+        for prob, _, transformed, target_date in target_info:
+            if math.isclose(prob, 0.5, rel_tol=1e-6):
+                continue
+            target_num = mdates.date2num(target_date)
+            ax.hlines(
+                transformed,
+                xmin=x_left_num,
+                xmax=target_num,
+                colors="tab:blue",
+                linestyles="--",
+                alpha=0.4,
+            )
+            ax.vlines(
+                target_num,
+                ymin=y_bottom,
+                ymax=transformed,
+                colors="tab:blue",
+                linestyles="--",
+                alpha=0.4,
+            )
+
+    xtick_nums = []
+    if frontier_dates:
+        xtick_nums.extend(mdates.date2num(d) for d in frontier_dates)
+    if target_info:
+        xtick_nums.extend(mdates.date2num(dt) for _, _, _, dt in target_info)
+    ax.set_xticks(sorted(set(xtick_nums)))
+
+    if legend_handles:
+        ax.legend(loc="best")
+
+    figure.autofmt_xdate()
+    figure.tight_layout()
+    figure.savefig(detail_path, dpi=300)
+    plt.close(figure)
+    return detail_path
 
 
 def main() -> None:
     records = build_dataset()
     write_merged_csv(records)
     data = compute_transforms(records)
-    figure_paths, projection_records = plot_transforms(data)
+    figure_paths, projection_records, detail_payloads = plot_transforms(data)
     write_projection_csv(projection_records)
     write_projection_markdown(projection_records)
+    for payload in detail_payloads:
+        detail_path = plot_logit_projection_detail(payload)
+        figure_paths.append(detail_path)
     print(f"Merged CSV saved to {OUTPUT_CSV}")
     print(f"Projection CSV saved to {PROJECTION_CSV}")
     print(f"Projection markdown saved to {PROJECTION_MD}")
